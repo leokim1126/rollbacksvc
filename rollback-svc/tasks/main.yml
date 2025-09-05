@@ -1,0 +1,73 @@
+---
+################################
+# 롤백 작업
+# 1) 방화벽 포트 제거
+# 2) 서비스 종료
+# 3) 설정 파일 삭제
+# 4) 패키지 삭제
+# 5) 검증 & 정리
+################################
+
+- name: 방화벽 포트 제거
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: disabled
+  loop: "{{ fw_svcs }}"
+  ignore_errors: true
+
+- name: 서비스 종료
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ svcs }}"
+  ignore_errors: true
+
+- name: 서비스 설정 삭제
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ files }}"
+
+- name: 패키지 삭제
+  ansible.builtin.dnf:
+    name: "{{ pkgs }}"
+    state: absent
+
+################################
+# 검증 및 정리
+################################
+
+- name: Verify removed packages
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Check if packages are removed
+  ansible.builtin.debug:
+    msg: "{{ item }} 패키지가 제거되었습니다."
+  loop: "{{ pkgs }}"
+  when: item not in ansible_facts.packages
+
+- name: Verify services
+  ansible.builtin.service_facts:
+
+- name: Check if services are absent
+  ansible.builtin.debug:
+    msg: "{{ item }} 서비스는 더 이상 존재하지 않습니다."
+  loop: "{{ svcs }}"
+  when: item not in ansible_facts.services
+
+- name: Kill leftover httpd processes if any
+  ansible.builtin.shell: "pkill -9 httpd || true"
+  ignore_errors: true
+
+- name: Remove leftover logs
+  ansible.builtin.file:
+    path: /var/log/httpd
+    state: absent
+
+- name: Send rollback notification
+  ansible.builtin.debug:
+    msg: "롤백이 완료되었습니다. ({{ inventory_hostname }})"
